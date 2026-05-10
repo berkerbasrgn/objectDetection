@@ -7,7 +7,7 @@ output_dir = "output_frames"
 os.makedirs(output_dir, exist_ok=True)
 
 model = YOLO("yolov8n.pt")
-
+#Screen Recording 2026-05-10 at 22.08.56.mov
 video_path = "Screen Recording 2026-05-10 at 22.08.56.mov"
 cap = cv2.VideoCapture(video_path)
 
@@ -20,8 +20,12 @@ width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-out = cv2.VideoWriter("output_video.mp4", fourcc, 20.0, (width * 2, height))
-
+out = cv2.VideoWriter(
+    "output_video.mp4",
+    fourcc,
+    20.0,
+    (width * 2, height * 2)
+)
 
 # Preprocessing
 def preprocess_pipeline(image):
@@ -114,6 +118,66 @@ def summarize(detections):
     avg_conf = sum(d["confidence"] for d in detections) / count if count > 0 else 0
     return count, avg_conf
 
+# ORB Feature Descriptor
+
+def extract_orb_features(image):
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    orb = cv2.ORB_create(nfeatures=300)
+
+    keypoints, descriptors = orb.detectAndCompute(gray, None)
+
+    feature_img = cv2.drawKeypoints(
+        image,
+        keypoints,
+        None,
+        color=(0,255,0),
+        flags=0
+    )
+
+    return feature_img, len(keypoints)
+
+# Motion Features - Optical Flow
+
+def draw_optical_flow(prev_gray, curr_gray, frame):
+
+    flow = cv2.calcOpticalFlowFarneback(
+        prev_gray,
+        curr_gray,
+        None,
+        0.5,
+        3,
+        15,
+        3,
+        5,
+        1.2,
+        0
+    )
+
+    step = 20
+
+    h, w = curr_gray.shape
+
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+
+            fx, fy = flow[y, x]
+
+            end_x = int(x + fx)
+            end_y = int(y + fy)
+
+            cv2.arrowedLine(
+                frame,
+                (x, y),
+                (end_x, end_y),
+                (0, 0, 255),
+                1,
+                tipLength=0.3
+            )
+
+    return frame
+
 
 
 # Stats
@@ -135,6 +199,8 @@ stats = {
 frame_count = 0
 id_map = {}
 next_display_id = 1
+# Optical Flow variables
+prev_gray = None
 while frame_count < 100:
 
     ret, frame = cap.read()
@@ -181,6 +247,35 @@ while frame_count < 100:
     stats["original"].append(summarize(orig_det))
 
     frame_with_boxes = draw_detections(frame.copy(), orig_det)
+    # MOTION FEATURES (Optical Flow)
+
+    curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    motion_frame = frame.copy()
+
+    if prev_gray is not None:
+
+        motion_frame = draw_optical_flow(
+            prev_gray,
+            curr_gray,
+            motion_frame
+        )
+
+    prev_gray = curr_gray
+    
+    
+    # ORB Features
+    orb_frame, orb_count = extract_orb_features(frame)
+
+    cv2.putText(
+        orb_frame,
+        f"ORB Features: {orb_count}",
+        (20, 40),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1,
+        (0,255,0),
+        2
+    )
 
     # PREPROCESSING
     processed = preprocess_pipeline(frame)
@@ -193,8 +288,9 @@ while frame_count < 100:
     eq_det = run_detection_with_boxes(processed["equalized"])
     eq_frame = draw_detections(processed["equalized"].copy(), eq_det)
 
-    combined = np.hstack([frame_with_boxes, eq_frame])
-
+    top_row = np.hstack([frame_with_boxes, eq_frame])
+    bottom_row = np.hstack([orb_frame, motion_frame])
+    combined = np.vstack([top_row, bottom_row])
     out.write(combined)
     cv2.imwrite(f"{output_dir}/frame_{frame_count}.jpg", combined)
 
