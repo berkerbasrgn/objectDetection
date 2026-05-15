@@ -9,7 +9,10 @@ def segment_otsu(image: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    result = cv2.bitwise_and(image, image, mask=mask)
+
+    # foreground: original color, background: darkened gray
+    background = (cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) // 2)
+    result = np.where(mask[:, :, None] == 255, image, background)
     return result
 
 
