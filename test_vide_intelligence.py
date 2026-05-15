@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 from ultralytics import YOLO
-import os 
+import os
+from core.segment import segment_otsu, segment_watershed, segment_yolo
 
 output_dir = "output_frames"
 os.makedirs(output_dir, exist_ok=True)
@@ -24,7 +25,7 @@ out = cv2.VideoWriter(
     "output_video.mp4",
     fourcc,
     20.0,
-    (width * 2, height * 2)
+    (width * 2, height * 3)
 )
 
 # Preprocessing
@@ -284,14 +285,25 @@ while frame_count < 100:
         det = run_detection_with_boxes(img)
         stats[name].append(summarize(det))
 
-    # Visualization
-    eq_det = run_detection_with_boxes(processed["equalized"])
-    eq_frame = draw_detections(processed["equalized"].copy(), eq_det)
+    # SEGMENTATION
+    otsu_frame = segment_otsu(frame)
+    watershed_frame = segment_watershed(frame)
+    yolo_seg_frame, _ = segment_yolo(frame)
 
-    top_row = np.hstack([frame_with_boxes, eq_frame])
-    bottom_row = np.hstack([orb_frame, motion_frame])
-    combined = np.vstack([top_row, bottom_row])
-    out.write(combined)
+    cv2.putText(otsu_frame, "Otsu", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    cv2.putText(watershed_frame, "Watershed", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    cv2.putText(yolo_seg_frame, "YOLO Seg", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+    # Visualization — 3 rows x 2 cols
+    h, w = frame.shape[:2]
+    def resize(img): return cv2.resize(img, (w, h))
+
+    top_row    = np.hstack([resize(frame_with_boxes), resize(yolo_seg_frame)])
+    middle_row = np.hstack([resize(orb_frame),        resize(motion_frame)])
+    bottom_row = np.hstack([resize(otsu_frame),       resize(watershed_frame)])
+
+    combined = np.vstack([top_row, middle_row, bottom_row])
+    out.write(cv2.resize(combined, (w * 2, h * 3)))
     cv2.imwrite(f"{output_dir}/frame_{frame_count}.jpg", combined)
 
     frame_count += 1
